@@ -1,6 +1,8 @@
+import os
 import osmnx as ox
 import networkx as nx
 from pymongo import MongoClient
+import bson
 from shapely.geometry import shape
 import matplotlib.pyplot as plt
 from shapely.geometry import LineString
@@ -21,11 +23,49 @@ def load_data_from_mongodb(db):
     return nodes, edges
 
 
-def reconstruct_graph(nodes, edges):
-    """Reconstruct the graph from nodes and edges."""
-    G = nx.MultiDiGraph()
+# def reconstruct_graph(nodes, edges):
+#     """Reconstruct the graph from nodes and edges."""
+#     G = nx.MultiDiGraph()
 
-    # Set the CRS
+#     # Set the CRS
+#     G.graph["crs"] = "EPSG:4326"  # WGS84
+
+#     # Add nodes
+#     for node in nodes:
+#         geometry = shape(node.pop("geometry"))
+#         G.add_node(node["osmid"], **node, geometry=geometry)
+
+#     # Add edges
+#     for edge in edges:
+#         geometry = shape(edge.pop("geometry"))
+#         G.add_edge(edge["u"], edge["v"], **edge, geometry=geometry)
+
+#     print("Graph reconstructed successfully!")
+#     return G
+
+
+# def reconstruct_graph(nodes, edges):
+#     """Reconstruct the graph from nodes and edges."""
+#     G = nx.MultiDiGraph()
+#     G.graph["crs"] = "EPSG:4326"  # WGS84
+
+#     # Add nodes
+#     for node in nodes:
+#         geometry = shape(node.pop("geometry"))
+#         G.add_node(node["osmid"], **node, geometry=geometry)
+
+#     # Add edges
+#     for edge in edges:
+#         geometry = shape(edge.pop("geometry"))
+#         G.add_edge(edge["u"], edge["v"], **edge, geometry=geometry)
+
+#     print("Graph reconstructed successfully!")
+#     return G
+
+
+def reconstruct_graph(nodes, edges, output_file="graph.graphml"):
+    """Reconstruct the graph from nodes and edges, and save to a file."""
+    G = nx.MultiDiGraph()
     G.graph["crs"] = "EPSG:4326"  # WGS84
 
     # Add nodes
@@ -39,7 +79,109 @@ def reconstruct_graph(nodes, edges):
         G.add_edge(edge["u"], edge["v"], **edge, geometry=geometry)
 
     print("Graph reconstructed successfully!")
+
+    # Save the graph to a file in GraphML format
+    try:
+        nx.write_graphml(G, output_file)
+        print(f"Graph saved to {output_file}")
+    except Exception as e:
+        print(f"Failed to save graph: {e}")
+
     return G
+
+    # def load_graph_from_file(input_file):
+    """Load a graph from a file and reconstruct geometries."""
+    try:
+        G = nx.read_graphml(input_file)
+
+        # Convert geometry back to Shapely objects if stored as GeoJSON-like mappings
+        for node, data in G.nodes(data=True):
+            if "geometry" in data:
+                data["geometry"] = shape(
+                    data["geometry"]
+                )  # Convert from GeoJSON-like dict to Shapely geometry
+
+        for u, v, key, data in G.edges(data=True, keys=True):
+            if "geometry" in data:
+                data["geometry"] = shape(
+                    data["geometry"]
+                )  # Convert from GeoJSON-like dict to Shapely geometry
+
+        print(f"Graph loaded successfully from {input_file}")
+        return G
+    except Exception as e:
+        print(f"Failed to load graph: {e}")
+        return None
+
+    # def initialize_graph(nodes, edges, file_path="graph.graphml"):
+    """
+    Initialize the graph: load from file if it exists, otherwise reconstruct and save it.
+    """
+    if os.path.exists(file_path):
+        print(f"Loading graph from {file_path}...")
+        graph = load_graph_from_file(file_path)
+    else:
+        print("Graph file not found. Reconstructing graph...")
+        graph = reconstruct_graph(nodes, edges, file_path)
+    return graph
+
+    # def preprocess_graph_data(G):
+    """
+    Preprocess graph data to ensure compatibility with GraphML.
+    Convert unsupported data types (e.g., ObjectId) to strings.
+    """
+    for node, data in G.nodes(data=True):
+        for key, value in data.items():
+            if isinstance(value, dict) or isinstance(value, list):
+                # Convert complex types to strings
+                data[key] = str(value)
+            elif isinstance(value, bson.ObjectId):  # Specific handling for ObjectId
+                data[key] = str(value)
+
+    for u, v, key, data in G.edges(data=True, keys=True):
+        for key, value in data.items():
+            if isinstance(value, dict) or isinstance(value, list):
+                data[key] = str(value)
+            elif isinstance(value, bson.ObjectId):  # Specific handling for ObjectId
+                data[key] = str(value)
+
+
+# def save_graph_to_file(graph, filename="graph.graphml"):
+#     """Save the graph to a GraphML file."""
+#     nx.write_graphml(
+#         graph, filename
+#     )  # Use write_graphml() to save the graph in GraphML format
+#     print(f"Graph saved to {filename}.")
+
+
+# def load_graph_from_file(filename="graph.graphml"):
+#     """Load the graph from a GraphML file."""
+#     if os.path.exists(filename):
+#         graph = nx.read_graphml(
+#             filename
+#         )  # Use read_graphml() to load the graph from GraphML
+#         print(f"Graph loaded from {filename}.")
+#         return graph
+#     else:
+#         print(f"{filename} does not exist.")
+#         return None
+
+
+# def get_graph(db, filename="graph.graphml"):
+#     """Get the graph either from a file or by reconstructing it from MongoDB."""
+#     # Try loading the graph from the file first
+#     graph = load_graph_from_file(filename)
+
+#     if graph is None:
+#         # If the graph doesn't exist, reconstruct it from MongoDB
+#         print("Reconstructing the graph from MongoDB...")
+#         nodes, edges = load_data_from_mongodb(db)
+#         graph = reconstruct_graph(nodes, edges)
+
+#         # Save the reconstructed graph locally for future use
+#         save_graph_to_file(graph, filename)
+
+#     return graph
 
 
 def find_shortest_path(G, origin_coords, destination_coords):
@@ -52,9 +194,21 @@ def find_shortest_path(G, origin_coords, destination_coords):
 
     print(f"Origin Node: {origin_node}, Destination Node: {destination_node}")
 
-    # Calculate shortest path using Dijkstra's algorithm
-    path = nx.dijkstra_path(
-        G, source=origin_node, target=destination_node, weight="length"
+    # Define the heuristic: straight-line (Euclidean) distance from current node to destination
+    def heuristic(u, v):
+        (lat_u, lon_u) = G.nodes[u]["y"], G.nodes[u]["x"]
+        (lat_v, lon_v) = G.nodes[v]["y"], G.nodes[v]["x"]
+        return ox.distance.great_circle_vec(
+            lat_u, lon_u, lat_v, lon_v
+        )  # straight-line distance in meters
+
+    # Calculate shortest path using A* algorithm
+    path = nx.astar_path(
+        G,
+        source=origin_node,
+        target=destination_node,
+        weight="length",
+        heuristic=heuristic,
     )
     return path
 

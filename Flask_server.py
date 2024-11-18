@@ -84,10 +84,27 @@ def shortest_path():
             G, X=destination_coords[1], Y=destination_coords[0]
         )
 
-        # Calculate shortest path using Dijkstra's algorithm
-        path = nx.dijkstra_path(
-            G, source=origin_node, target=destination_node, weight="length"
+        # Define the heuristic: straight-line (Euclidean) distance from current node to destination
+        def heuristic(u, v):
+            (lat_u, lon_u) = G.nodes[u]["y"], G.nodes[u]["x"]
+            (lat_v, lon_v) = G.nodes[v]["y"], G.nodes[v]["x"]
+            return ox.distance.great_circle_vec(
+                lat_u, lon_u, lat_v, lon_v
+            )  # straight-line distance in meters
+
+        # Calculate shortest path using A* algorithm
+        path = nx.astar_path(
+            G,
+            source=origin_node,
+            target=destination_node,
+            weight="length",
+            heuristic=heuristic,
         )
+
+        # # Calculate shortest path using Dijkstra's algorithm
+        # path = nx.dijkstra_path(
+        #     G, source=origin_node, target=destination_node, weight="length"
+        # )
 
         return jsonify({"path": path}), 200
     except Exception as e:
