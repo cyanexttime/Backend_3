@@ -16,7 +16,7 @@ G = None
 def connect_to_mongodb():
     """Connect to MongoDB and return the database instance."""
     client = MongoClient(
-        "mongodb://localhost:27017/"
+        "mongodb+srv://khangvx8803:zg2vEqu9twyEsCyN@potholescanner.grygu.mongodb.net/?retryWrites=true&w=majority&appName=PotholeScanner:3000/"
     )  # Change to your own mongoDB server
     db = client["osm_data"]  # Adjust database name if needed
     return db

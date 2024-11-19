@@ -12,7 +12,9 @@ from geopy.geocoders import Nominatim
 
 def connect_to_mongodb():
     """Connect to MongoDB and return the database instance."""
-    client = MongoClient("mongodb://localhost:27017/")
+    client = MongoClient(
+        "mongodb+srv://khangvx8803:zg2vEqu9twyEsCyN@potholescanner.grygu.mongodb.net/?retryWrites=true&w=majority&appName=PotholeScanner:3000/"
+    )
     db = client["osm_data"]  # Adjust database name if needed
     return db
 
@@ -64,7 +66,7 @@ def load_data_from_mongodb(db):
 #     return G
 
 
-def reconstruct_graph(nodes, edges, output_file="graph.graphml"):
+def reconstruct_graph(nodes, edges):
     """Reconstruct the graph from nodes and edges, and save to a file."""
     G = nx.MultiDiGraph()
     G.graph["crs"] = "EPSG:4326"  # WGS84
@@ -80,13 +82,6 @@ def reconstruct_graph(nodes, edges, output_file="graph.graphml"):
         G.add_edge(edge["u"], edge["v"], **edge, geometry=geometry)
 
     print("Graph reconstructed successfully!")
-
-    # Save the graph to a file in GraphML format
-    try:
-        nx.write_graphml(G, output_file)
-        print(f"Graph saved to {output_file}")
-    except Exception as e:
-        print(f"Failed to save graph: {e}")
 
     return G
 
