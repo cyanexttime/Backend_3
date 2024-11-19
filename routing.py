@@ -7,6 +7,7 @@ from shapely.geometry import shape
 import matplotlib.pyplot as plt
 from shapely.geometry import LineString
 import geopandas as gpd
+from geopy.geocoders import Nominatim
 
 
 def connect_to_mongodb():
@@ -145,43 +146,40 @@ def reconstruct_graph(nodes, edges, output_file="graph.graphml"):
             elif isinstance(value, bson.ObjectId):  # Specific handling for ObjectId
                 data[key] = str(value)
 
+    # def save_graph_to_file(graph, filename="graph.graphml"):
+    #     """Save the graph to a GraphML file."""
+    #     nx.write_graphml(
+    #         graph, filename
+    #     )  # Use write_graphml() to save the graph in GraphML format
+    #     print(f"Graph saved to {filename}.")
 
-# def save_graph_to_file(graph, filename="graph.graphml"):
-#     """Save the graph to a GraphML file."""
-#     nx.write_graphml(
-#         graph, filename
-#     )  # Use write_graphml() to save the graph in GraphML format
-#     print(f"Graph saved to {filename}.")
+    # def load_graph_from_file(filename="graph.graphml"):
+    #     """Load the graph from a GraphML file."""
+    #     if os.path.exists(filename):
+    #         graph = nx.read_graphml(
+    #             filename
+    #         )  # Use read_graphml() to load the graph from GraphML
+    #         print(f"Graph loaded from {filename}.")
+    #         return graph
+    #     else:
+    #         print(f"{filename} does not exist.")
+    #         return None
 
+    # def get_graph(db, filename="graph.graphml"):
+    #     """Get the graph either from a file or by reconstructing it from MongoDB."""
+    #     # Try loading the graph from the file first
+    #     graph = load_graph_from_file(filename)
 
-# def load_graph_from_file(filename="graph.graphml"):
-#     """Load the graph from a GraphML file."""
-#     if os.path.exists(filename):
-#         graph = nx.read_graphml(
-#             filename
-#         )  # Use read_graphml() to load the graph from GraphML
-#         print(f"Graph loaded from {filename}.")
-#         return graph
-#     else:
-#         print(f"{filename} does not exist.")
-#         return None
+    #     if graph is None:
+    #         # If the graph doesn't exist, reconstruct it from MongoDB
+    #         print("Reconstructing the graph from MongoDB...")
+    #         nodes, edges = load_data_from_mongodb(db)
+    #         graph = reconstruct_graph(nodes, edges)
 
+    #         # Save the reconstructed graph locally for future use
+    #         save_graph_to_file(graph, filename)
 
-# def get_graph(db, filename="graph.graphml"):
-#     """Get the graph either from a file or by reconstructing it from MongoDB."""
-#     # Try loading the graph from the file first
-#     graph = load_graph_from_file(filename)
-
-#     if graph is None:
-#         # If the graph doesn't exist, reconstruct it from MongoDB
-#         print("Reconstructing the graph from MongoDB...")
-#         nodes, edges = load_data_from_mongodb(db)
-#         graph = reconstruct_graph(nodes, edges)
-
-#         # Save the reconstructed graph locally for future use
-#         save_graph_to_file(graph, filename)
-
-#     return graph
+    #     return graph
 
 
 def find_shortest_path(G, origin_coords, destination_coords):
@@ -212,6 +210,63 @@ def find_shortest_path(G, origin_coords, destination_coords):
     )
     return path
 
+    # def find_shortest_path_by_place_names(G, origin_place, destination_place):
+    """
+    Find the shortest path between two place names using Dijkstra's algorithm.
+    """
+    # Initialize geolocator
+    geolocator = Nominatim(user_agent="geoapiExercises")
+
+    # Geocode origin and destination places
+    try:
+        origin_location = geolocator.geocode(origin_place)
+        destination_location = geolocator.geocode(destination_place)
+
+        if not origin_location or not destination_location:
+            raise ValueError("One or both of the locations could not be found.")
+
+        print(
+            f"Origin: {origin_location.address}, Coordinates: ({origin_location.latitude}, {origin_location.longitude})"
+        )
+        print(
+            f"Destination: {destination_location.address}, Coordinates: ({destination_location.latitude}, {destination_location.longitude})"
+        )
+    except Exception as e:
+        print(f"Error in geocoding: {e}")
+        return None
+
+    # Find nearest nodes to origin and destination
+    origin_node = ox.distance.nearest_nodes(
+        G, X=origin_location.longitude, Y=origin_location.latitude
+    )
+    destination_node = ox.distance.nearest_nodes(
+        G, X=destination_location.longitude, Y=destination_location.latitude
+    )
+
+    print(f"Origin Node: {origin_node}, Destination Node: {destination_node}")
+
+    # Define the heuristic: straight-line (Euclidean) distance from current node to destination
+    def heuristic(u, v):
+        (lat_u, lon_u) = G.nodes[u]["y"], G.nodes[u]["x"]
+        (lat_v, lon_v) = G.nodes[v]["y"], G.nodes[v]["x"]
+        return ox.distance.great_circle_vec(
+            lat_u, lon_u, lat_v, lon_v
+        )  # Straight-line distance in meters
+
+    # Calculate shortest path using A* algorithm
+    try:
+        path = nx.astar_path(
+            G,
+            source=origin_node,
+            target=destination_node,
+            weight="length",
+            heuristic=heuristic,
+        )
+        return path
+    except nx.NetworkXNoPath:
+        print("No path could be found between the specified locations.")
+        return None
+
 
 def visualize_route(G, path):
     """Visualize the route on the graph, focusing on the route area."""
@@ -221,8 +276,8 @@ def visualize_route(G, path):
         route_color="red",
         route_linewidth=3,
         route_alpha=0.7,
-        show=False,  # Do not display immediately
-        close=False,  # Keep the plot open for further customization
+        show=False,
+        close=False,
     )
 
     # Get the bounding box around the route
@@ -283,8 +338,8 @@ def main():
     G = reconstruct_graph(nodes, edges)
 
     # Step 4: Define origin and destination coordinates
-    origin_coords = (10.86090, 106.79403)  # Replace with your starting location
-    destination_coords = (10.87041, 106.75372)  # Replace with your destination
+    origin_coords = (10.882311, 106.782409)  # Replace with your starting location
+    destination_coords = (10.759388, 106.667391)
 
     # Step 5: Find shortest path
     path = find_shortest_path(G, origin_coords, destination_coords)
