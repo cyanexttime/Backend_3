@@ -73,8 +73,8 @@ def shortest_path():
 
     try:
         data = request.json
-        origin_coords = tuple(data["origin_coords"])
-        destination_coords = tuple(data["destination_coords"])
+        origin_coords = (10.882311, 106.782409)
+        destination_coords = (10.759388, 106.667391)
 
         # Find nearest nodes to origin and destination
         origin_node = ox.distance.nearest_nodes(

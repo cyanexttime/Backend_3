@@ -1,4 +1,7 @@
+import base64
+import io
 import os
+from PIL import Image
 import osmnx as ox
 import networkx as nx
 from pymongo import MongoClient
@@ -8,13 +11,12 @@ import matplotlib.pyplot as plt
 from shapely.geometry import LineString
 import geopandas as gpd
 from geopy.geocoders import Nominatim
+from bson.binary import Binary
 
 
 def connect_to_mongodb():
     """Connect to MongoDB and return the database instance."""
-    client = MongoClient(
-        "mongodb+srv://khangvx8803:zg2vEqu9twyEsCyN@potholescanner.grygu.mongodb.net/?retryWrites=true&w=majority&appName=PotholeScanner:3000/"
-    )
+    client = MongoClient("mongodb://localhost:27017")
     db = client["osm_data"]  # Adjust database name if needed
     return db
 
@@ -26,44 +28,21 @@ def load_data_from_mongodb(db):
     return nodes, edges
 
 
-# def reconstruct_graph(nodes, edges):
-#     """Reconstruct the graph from nodes and edges."""
-#     G = nx.MultiDiGraph()
+def retrieve_map_tile_from_mongodb(db, location_name):
+    collection = db["maps"]
+    """Retrieve a map tile from MongoDB based on location name."""
+    # Query MongoDB collection for the map tile
+    tile = collection.find_one({"location_name": location_name})
 
-#     # Set the CRS
-#     G.graph["crs"] = "EPSG:4326"  # WGS84
+    if not tile:
+        raise ValueError(f"No map tile found for {location_name}")
 
-#     # Add nodes
-#     for node in nodes:
-#         geometry = shape(node.pop("geometry"))
-#         G.add_node(node["osmid"], **node, geometry=geometry)
+    # Extract the image data from the document
+    image_data = tile["image_data"]
 
-#     # Add edges
-#     for edge in edges:
-#         geometry = shape(edge.pop("geometry"))
-#         G.add_edge(edge["u"], edge["v"], **edge, geometry=geometry)
-
-#     print("Graph reconstructed successfully!")
-#     return G
-
-
-# def reconstruct_graph(nodes, edges):
-#     """Reconstruct the graph from nodes and edges."""
-#     G = nx.MultiDiGraph()
-#     G.graph["crs"] = "EPSG:4326"  # WGS84
-
-#     # Add nodes
-#     for node in nodes:
-#         geometry = shape(node.pop("geometry"))
-#         G.add_node(node["osmid"], **node, geometry=geometry)
-
-#     # Add edges
-#     for edge in edges:
-#         geometry = shape(edge.pop("geometry"))
-#         G.add_edge(edge["u"], edge["v"], **edge, geometry=geometry)
-
-#     print("Graph reconstructed successfully!")
-#     return G
+    # Convert the binary data to a PIL Image
+    tile_image = Image.open(io.BytesIO(image_data))
+    return tile_image
 
 
 def reconstruct_graph(nodes, edges):
@@ -205,63 +184,6 @@ def find_shortest_path(G, origin_coords, destination_coords):
     )
     return path
 
-    # def find_shortest_path_by_place_names(G, origin_place, destination_place):
-    """
-    Find the shortest path between two place names using Dijkstra's algorithm.
-    """
-    # Initialize geolocator
-    geolocator = Nominatim(user_agent="geoapiExercises")
-
-    # Geocode origin and destination places
-    try:
-        origin_location = geolocator.geocode(origin_place)
-        destination_location = geolocator.geocode(destination_place)
-
-        if not origin_location or not destination_location:
-            raise ValueError("One or both of the locations could not be found.")
-
-        print(
-            f"Origin: {origin_location.address}, Coordinates: ({origin_location.latitude}, {origin_location.longitude})"
-        )
-        print(
-            f"Destination: {destination_location.address}, Coordinates: ({destination_location.latitude}, {destination_location.longitude})"
-        )
-    except Exception as e:
-        print(f"Error in geocoding: {e}")
-        return None
-
-    # Find nearest nodes to origin and destination
-    origin_node = ox.distance.nearest_nodes(
-        G, X=origin_location.longitude, Y=origin_location.latitude
-    )
-    destination_node = ox.distance.nearest_nodes(
-        G, X=destination_location.longitude, Y=destination_location.latitude
-    )
-
-    print(f"Origin Node: {origin_node}, Destination Node: {destination_node}")
-
-    # Define the heuristic: straight-line (Euclidean) distance from current node to destination
-    def heuristic(u, v):
-        (lat_u, lon_u) = G.nodes[u]["y"], G.nodes[u]["x"]
-        (lat_v, lon_v) = G.nodes[v]["y"], G.nodes[v]["x"]
-        return ox.distance.great_circle_vec(
-            lat_u, lon_u, lat_v, lon_v
-        )  # Straight-line distance in meters
-
-    # Calculate shortest path using A* algorithm
-    try:
-        path = nx.astar_path(
-            G,
-            source=origin_node,
-            target=destination_node,
-            weight="length",
-            heuristic=heuristic,
-        )
-        return path
-    except nx.NetworkXNoPath:
-        print("No path could be found between the specified locations.")
-        return None
-
 
 def visualize_route(G, path):
     """Visualize the route on the graph, focusing on the route area."""
@@ -285,6 +207,29 @@ def visualize_route(G, path):
     ax.set_xlim(min(lons) - margin, max(lons) + margin)
     ax.set_ylim(min(lats) - margin, max(lats) + margin)
 
+    plt.show()
+
+
+def visualize_route_with_map(G, path, db, location_name):
+    """Visualize the route on top of the map tile."""
+    # Step 1: Retrieve the map tile from MongoDB
+    tile_image = retrieve_map_tile_from_mongodb(db, location_name)
+
+    # Step 2: Plot the map tile as the background
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.imshow(tile_image, extent=(0, 1, 0, 1))  # Adjust extent based on the map size
+
+    # Step 3: Extract the route coordinates from the graph path
+    route_coords = [(G.nodes[node]["x"], G.nodes[node]["y"]) for node in path]
+    lons, lats = zip(*route_coords)
+
+    # Step 4: Overlay the route on the map tile
+    ax.plot(lons, lats, color="red", linewidth=2, alpha=0.8)
+
+    # Step 5: Set titles and labels
+    plt.title(f"Route Visualization for {location_name}")
+    plt.xlabel("Longitude")
+    plt.ylabel("Latitude")
     plt.show()
 
 
@@ -325,7 +270,6 @@ def visualize_route(G, path):
 def main():
     # Step 1: Connect to MongoDB
     db = connect_to_mongodb()
-
     # Step 2: Load data from MongoDB
     nodes, edges = load_data_from_mongodb(db)
 
@@ -335,12 +279,11 @@ def main():
     # Step 4: Define origin and destination coordinates
     origin_coords = (10.882311, 106.782409)  # Replace with your starting location
     destination_coords = (10.759388, 106.667391)
-
     # Step 5: Find shortest path
     path = find_shortest_path(G, origin_coords, destination_coords)
-
     # Step 6: Visualize or save the route
     visualize_route(G, path)
+    # visualize_route_with_map(G, path, db, "Ho Chi Minh City, Vietnam")
     # save_route_as_geojson(G, path, "route.geojson")
 
 
